@@ -333,9 +333,9 @@ export const Player: React.FC = () => {
   const currentSong = queue[playbackState.currentIndex] || null;
 
   return (
-    <div className="w-full flex flex-col items-center relative z-10 pb-10 lg:pb-14">
+    <div className="w-full flex flex-col items-center relative z-10 pb-6 lg:pb-8">
       {/* 1. Hero Artwork / Player Container */}
-      <div className="relative w-full aspect-square max-w-[340px] md:max-w-[420px] lg:max-w-[460px] xl:max-w-[520px] mb-8 select-none">
+      <div className="relative w-full aspect-video max-w-[340px] md:max-w-[420px] lg:max-w-[460px] xl:max-w-[520px] mb-6 select-none">
         {/* Dynamic Blurred Glow behind the artwork (Apple Music style) */}
         {currentSong?.thumbnail && (
           <div 
@@ -358,11 +358,11 @@ export const Player: React.FC = () => {
 
           {/* Cover Art Placeholder when empty */}
           {!playbackState.videoId && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-text-secondary p-10 text-center select-none z-20">
-              <div className="w-24 h-24 rounded-[32px] bg-card-cozy flex items-center justify-center border border-border-cozy text-brand mb-8 animate-pulse-slow">
-                <Music className="w-12 h-12" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-text-secondary p-6 text-center select-none z-20">
+              <div className="w-14 h-14 rounded-[20px] bg-card-cozy flex items-center justify-center border border-border-cozy text-brand mb-3 animate-pulse-slow">
+                <Music className="w-7 h-7" />
               </div>
-              <h3 className="text-text-primary font-bold text-3xl md:text-4xl mb-3">Nothing playing</h3>
+              <h3 className="text-text-primary font-bold text-3xl md:text-4xl mb-2">Nothing playing</h3>
               <p className="text-lg md:text-xl text-text-muted max-w-[320px] leading-relaxed">
                 Search for a video on the right or check the queue to start listening.
               </p>
@@ -380,22 +380,18 @@ export const Player: React.FC = () => {
       </div>
 
       {/* 2. Track Meta (+20% larger typography) */}
-      <div className="text-center max-w-[520px] w-full px-2 mb-4">
+      <div className="text-center max-w-[520px] w-full px-2 mb-3">
         <h2 className="text-text-primary text-[42px] md:text-[50px] font-black tracking-tight leading-tight line-clamp-1 min-h-[58px]">
           {currentSong ? currentSong.title : "Nothing playing"}
         </h2>
-        <p className="text-text-secondary text-2xl md:text-3xl font-semibold mt-3 line-clamp-1 min-h-[38px]">
+        <p className="text-text-secondary text-2xl md:text-3xl font-semibold mt-2 line-clamp-1 min-h-[38px]">
           {currentSong ? `Queued by ${currentSong.addedBy}` : "Cozy vibes await"}
         </p>
       </div>
 
-      {/* 3. Progress Slider Controls (Time labels inline on same horizontal axis) */}
-      <div className="w-full max-w-[520px] mb-6 flex items-center gap-4">
-        <span className="text-[15px] text-text-secondary font-mono select-none min-w-[45px] text-right">
-          {formatTime(currentTime)}
-        </span>
-        
-        <div className="relative group flex-1 h-3 rounded-full bg-card-cozy border border-border-cozy flex items-center cursor-pointer">
+      {/* 3. Progress Slider Controls (Matches player width, time labels aligned with both ends) */}
+      <div className="w-full max-w-[520px] mb-5 flex flex-col gap-2">
+        <div className="relative group w-full h-3 rounded-full bg-card-cozy border border-border-cozy flex items-center cursor-pointer">
           <input
             type="range"
             min={0}
@@ -418,10 +414,16 @@ export const Player: React.FC = () => {
             style={{ left: `${(currentTime / (duration || 1)) * 100}%` }}
           />
         </div>
-
-        <span className="text-[15px] text-text-secondary font-mono select-none min-w-[45px] text-left">
-          {formatTime(duration)}
-        </span>
+        
+        {/* Time labels aligned with both ends */}
+        <div className="flex justify-between w-full px-1">
+          <span className="text-[15px] text-text-secondary font-mono select-none">
+            {formatTime(currentTime)}
+          </span>
+          <span className="text-[15px] text-text-secondary font-mono select-none">
+            {formatTime(duration)}
+          </span>
+        </div>
       </div>
 
       {/* 4. Playback Buttons (Aligned in a clean horizontal line, fixed bounding boxes) */}
