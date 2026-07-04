@@ -70,6 +70,8 @@ export async function GET(request: Request) {
         lastUpdated: 0,
       },
       queue: parsedQueue,
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
     });
 
   } catch (err: any) {

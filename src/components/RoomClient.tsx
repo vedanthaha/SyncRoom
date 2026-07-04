@@ -15,9 +15,10 @@ interface RoomClientProps {
 }
 
 export const RoomClient: React.FC<RoomClientProps> = ({ roomId }) => {
+  const cleanRoomId = roomId.toLowerCase().trim();
   return (
-    <SyncProvider roomId={roomId}>
-      <RoomInner roomId={roomId} />
+    <SyncProvider roomId={cleanRoomId}>
+      <RoomInner roomId={cleanRoomId} />
     </SyncProvider>
   );
 };

@@ -57,6 +57,14 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
   const [joinedAt, setJoinedAt] = useState<number>(0);
   const [dbRoomId, setDbRoomId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
+  const [supabaseClient, setSupabaseClient] = useState<any>(null);
+
+  // Set initial supabase client from static instance if available
+  useEffect(() => {
+    if (supabase) {
+      setSupabaseClient(supabase);
+    }
+  }, []);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [playbackState, setPlaybackState] = useState<PlaybackState>({
     videoId: null,
@@ -109,9 +117,9 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
   }, [members]);
 
   const isHost =
-    members.length === 0 ||
-    members.find((m) => m.id === userId) === undefined ||
-    members.sort((a, b) => a.joinedAt - b.joinedAt)[0]?.id === userId;
+    members.length <= 1
+      ? true
+      : [...members].sort((a, b) => a.joinedAt - b.joinedAt)[0]?.id === userId;
   const isHostRef = useRef(isHost);
   useEffect(() => {
     isHostRef.current = isHost;
@@ -156,6 +164,17 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
             ...data.playbackState,
           }));
         }
+
+        // Dynamically initialize Supabase client if it's null on the client-side
+        if (data.supabaseUrl && data.supabaseAnonKey && !supabaseClient) {
+          const { createClient } = await import("@supabase/supabase-js");
+          const client = createClient(data.supabaseUrl, data.supabaseAnonKey, {
+            auth: {
+              persistSession: false,
+            },
+          });
+          setSupabaseClient(client);
+        }
       }
     } catch (err) {
       console.error("Error fetching queue:", err);
@@ -172,9 +191,10 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
 
   // Supabase Broadcast & Presence Initialization
   useEffect(() => {
-    if (!hasJoined || !roomId || !supabase || !userId || !joinedAt) return;
+    if (!hasJoined || !roomId || !supabaseClient || !userId || !joinedAt) return;
 
-    const channel = supabase.channel(`room:${roomId}`, {
+    const cleanRoomCode = roomId.toLowerCase().trim();
+    const channel = supabaseClient.channel(`room:${cleanRoomCode}`, {
       config: {
         presence: {
           key: userId,
@@ -183,7 +203,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
     });
 
     // Listen to live playback broadcast changes
-    channel.on("broadcast", { event: "playback" }, ({ payload }) => {
+    channel.on("broadcast", { event: "playback" }, ({ payload }: { payload: any }) => {
       if (!isHostRef.current) {
         setPlaybackState(payload);
       }
@@ -232,7 +252,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
         }
         setMembers(sorted);
       })
-      .on("presence", { event: "join" }, ({ key, newPresences }) => {
+      .on("presence", { event: "join" }, ({ key, newPresences }: { key: string; newPresences: any[] }) => {
         // If we are host, broadcast our current state to new joins
         if (isHostRef.current && playbackStateRef.current.videoId) {
           channel.send({
@@ -243,7 +263,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
         }
       });
 
-    channel.subscribe(async (status) => {
+    channel.subscribe(async (status: string) => {
       if (status === "SUBSCRIBED") {
         await channel.track({
           clientId: userId,
@@ -567,7 +587,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
         userId,
         userName,
         isHost,
-        isSupabase: true,
+        isSupabase: !!supabaseClient,
         members,
         queue,
         playbackState,
