@@ -255,18 +255,28 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
         const presenceState = channel.presenceState();
         console.log('👥 Presence state:', presenceState);
         const activeMembers: Member[] = [];
+        const seenIds = new Set<string>(); // Track unique user IDs
 
         Object.keys(presenceState).forEach((key) => {
           const presences = presenceState[key] as any[];
           console.log(`Processing presence key: ${key}`, presences);
-          presences.forEach((p) => {
-            activeMembers.push({
-              id: p.clientId || p.userId || key,
-              name: p.nickname || p.userName || "Guest",
-              isHost: false, // determined dynamically
-              joinedAt: p.joinedAt || Date.now(),
-            });
-          });
+
+          // Only take the FIRST presence for each key (most recent)
+          if (presences.length > 0) {
+            const p = presences[0]; // Take only the first/latest presence
+            const memberId = p.clientId || p.userId || key;
+
+            // Only add if we haven't seen this ID yet
+            if (!seenIds.has(memberId)) {
+              seenIds.add(memberId);
+              activeMembers.push({
+                id: memberId,
+                name: p.nickname || p.userName || "Guest",
+                isHost: false, // determined dynamically
+                joinedAt: p.joinedAt || Date.now(),
+              });
+            }
+          }
         });
 
         console.log('👥 Active members before sorting:', activeMembers);
@@ -428,14 +438,28 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
         lastUpdated: Date.now(),
       };
       setPlaybackState(initialPlayback);
-      
-      // Broadcast playback immediately
+
+      // CRITICAL: Broadcast BOTH queue change AND playback together
+      // This ensures guests load the queue BEFORE trying to play
       if (channelRef.current) {
+        console.log('📤 Broadcasting queue_change for new song');
         channelRef.current.send({
           type: "broadcast",
-          event: "playback",
-          payload: initialPlayback,
+          event: "queue_change",
+          payload: {},
         });
+
+        // Small delay to ensure queue_change is processed first
+        setTimeout(() => {
+          if (channelRef.current) {
+            console.log('📤 Broadcasting playback for new song:', initialPlayback);
+            channelRef.current.send({
+              type: "broadcast",
+              event: "playback",
+              payload: initialPlayback,
+            });
+          }
+        }, 100);
       }
 
       if (dbRoomId) {
@@ -469,8 +493,8 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
           }),
         });
         if (res.ok) {
-          // Broadcast queue change to others
-          if (channelRef.current) {
+          // Only broadcast queue change if we didn't already start playing
+          if (!wasIdle && channelRef.current) {
             channelRef.current.send({
               type: "broadcast",
               event: "queue_change",

@@ -244,7 +244,7 @@ export const Player: React.FC = () => {
   // Control commands
   const togglePlay = () => {
     if (!isHost) return;
-    
+
     if (!playbackState.videoId && queue.length > 0) {
       const idx = playbackState.currentIndex < queue.length && playbackState.currentIndex >= 0 ? playbackState.currentIndex : 0;
       updatePlaybackState({
@@ -260,13 +260,17 @@ export const Player: React.FC = () => {
     if (!player) return;
     const nextPlaying = !playbackState.isPlaying;
     const time = player.getCurrentTime() || 0;
-    
+
+    console.log('🎮 togglePlay:', { nextPlaying, currentTime: time });
+
+    // Update state first
     updatePlaybackState({
       isPlaying: nextPlaying,
       currentTime: time,
       lastUpdated: Date.now(),
     });
 
+    // Then control the player
     if (nextPlaying) {
       player.playVideo();
     } else {
