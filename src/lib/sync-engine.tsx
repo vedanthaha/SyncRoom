@@ -225,8 +225,19 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
       console.log('📺 Current playback state:', playbackStateRef.current);
 
       if (!isHostRef.current) {
-        console.log('✅ Applying playback state (guest)');
-        setPlaybackState(payload);
+        // Only apply if it's newer than what we have OR if we don't have anything
+        const isNewer = !playbackStateRef.current.lastUpdated ||
+                       payload.lastUpdated >= playbackStateRef.current.lastUpdated;
+
+        // Special case: If video changed, always apply (new song starting)
+        const isNewVideo = payload.videoId !== playbackStateRef.current.videoId;
+
+        if (isNewVideo || isNewer) {
+          console.log('✅ Applying playback state (guest)');
+          setPlaybackState(payload);
+        } else {
+          console.log('⏭️ Skipping stale playback update (older than current)');
+        }
       } else {
         console.log('⏭️ Skipping playback update (host)');
       }
@@ -430,16 +441,19 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
     // If nothing was playing, start playing this newly added track immediately!
     const wasIdle = !playbackStateRef.current.videoId;
     if (wasIdle) {
-      const initialPlayback = {
+      const initialPlayback: PlaybackState = {
         videoId: video.videoId,
         currentIndex: newQueue.length - 1,
         isPlaying: true,
         currentTime: 0,
         lastUpdated: Date.now(),
+        triggeredBy: userId,
       };
+
+      console.log('🎵 Starting playback for new song:', initialPlayback);
       setPlaybackState(initialPlayback);
 
-      // CRITICAL: Broadcast BOTH queue change AND playback together
+      // CRITICAL: Broadcast BOTH queue change AND playback IMMEDIATELY and TOGETHER
       // This ensures guests load the queue BEFORE trying to play
       if (channelRef.current) {
         console.log('📤 Broadcasting queue_change for new song');
@@ -449,17 +463,12 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
           payload: {},
         });
 
-        // Small delay to ensure queue_change is processed first
-        setTimeout(() => {
-          if (channelRef.current) {
-            console.log('📤 Broadcasting playback for new song:', initialPlayback);
-            channelRef.current.send({
-              type: "broadcast",
-              event: "playback",
-              payload: initialPlayback,
-            });
-          }
-        }, 100);
+        console.log('📤 Broadcasting initial playback (currentTime: 0)');
+        channelRef.current.send({
+          type: "broadcast",
+          event: "playback",
+          payload: initialPlayback,
+        });
       }
 
       if (dbRoomId) {
