@@ -199,12 +199,6 @@ const RoomInner: React.FC<{ roomId: string }> = ({ roomId }) => {
         </Link>
 
         <div className="flex items-center gap-4">
-          {/* Realtime Engine Mode Indicator */}
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-card-cozy border border-border-cozy text-[10px] text-text-secondary select-none font-mono">
-            <span className={`w-1.5 h-1.5 rounded-full ${isSupabase ? "bg-emerald-400 animate-pulse" : "bg-blue-400"}`} />
-            <span>{isSupabase ? "Supabase Sync" : "Multi-Tab Sync"}</span>
-          </span>
-
           <Invite roomId={roomId} />
         </div>
       </header>

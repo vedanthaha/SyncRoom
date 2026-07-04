@@ -368,23 +368,15 @@ export const Player: React.FC = () => {
               </p>
             </div>
           )}
-
-          {/* Live Badge overlay */}
-          {playbackState.videoId && (
-            <div className="absolute top-6 left-6 bg-black/70 backdrop-blur-md px-4 py-2.5 rounded-full border border-white/5 flex items-center gap-2.5 text-xs font-bold tracking-wider uppercase text-text-secondary select-none pointer-events-none z-30">
-              <span className="w-2.5 h-2.5 rounded-full bg-brand animate-ping" />
-              <span>Listening Live</span>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* 2. Track Meta (+20% larger typography) */}
-      <div className="text-center max-w-[520px] w-full px-2 mb-3">
-        <h2 className="text-text-primary text-[42px] md:text-[50px] font-black tracking-tight leading-tight line-clamp-1 min-h-[58px]">
+      {/* 2. Track Meta (responsive typography) */}
+      <div className="text-center max-w-[520px] w-full px-4 mb-3">
+        <h2 className="text-text-primary text-2xl sm:text-3xl md:text-[42px] lg:text-[50px] font-black tracking-tight leading-tight line-clamp-2 min-h-[2.5rem] sm:min-h-[3rem] md:min-h-[58px]">
           {currentSong ? currentSong.title : "Nothing playing"}
         </h2>
-        <p className="text-text-secondary text-2xl md:text-3xl font-semibold mt-2 line-clamp-1 min-h-[38px]">
+        <p className="text-text-secondary text-base sm:text-lg md:text-2xl lg:text-3xl font-semibold mt-2 line-clamp-1 min-h-[1.5rem] sm:min-h-[2rem] md:min-h-[38px]">
           {currentSong ? `Queued by ${currentSong.addedBy}` : "Cozy vibes await"}
         </p>
       </div>
