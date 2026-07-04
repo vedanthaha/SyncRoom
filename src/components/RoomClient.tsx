@@ -28,9 +28,23 @@ const RoomInner: React.FC<{ roomId: string }> = ({ roomId }) => {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [isValidating, setIsValidating] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
 
-  // Validate room exists on mount
+  // Check if this is a room creation request
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      setIsCreating(params.get("create") === "true");
+    }
+  }, []);
+
+  // Validate room exists on mount (skip if creating)
+  useEffect(() => {
+    if (isCreating) {
+      setIsValidating(false);
+      return;
+    }
+
     let active = true;
     const checkRoom = async () => {
       try {
@@ -55,7 +69,7 @@ const RoomInner: React.FC<{ roomId: string }> = ({ roomId }) => {
     return () => {
       active = false;
     };
-  }, [roomId]);
+  }, [roomId, isCreating]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,20 +80,49 @@ const RoomInner: React.FC<{ roomId: string }> = ({ roomId }) => {
       setError("Please choose a nickname");
       return;
     }
-    
+
     setIsValidating(true);
-    try {
-      const res = await fetch(`/api/rooms?roomCode=${encodeURIComponent(roomId)}`);
-      const data = await res.json();
-      if (!res.ok || !data.exists) {
-        setError("Room not found. Check the code or create a new room.");
+
+    // If creating a new room, create it first
+    if (isCreating) {
+      try {
+        const res = await fetch("/api/rooms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomCode: roomId }),
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          setError(data.error || "Failed to create room. Please try again.");
+          setIsValidating(false);
+          return;
+        }
+
+        // Clear the ?create=true from URL after room is created
+        if (typeof window !== "undefined") {
+          window.history.replaceState({}, "", `/room/${roomId}`);
+        }
+      } catch (err) {
+        setError("Failed to create room. Please try again.");
         setIsValidating(false);
         return;
       }
-    } catch (err) {
-      setError("Failed to validate room. Please try again.");
-      setIsValidating(false);
-      return;
+    } else {
+      // Joining existing room - validate it exists
+      try {
+        const res = await fetch(`/api/rooms?roomCode=${encodeURIComponent(roomId)}`);
+        const data = await res.json();
+        if (!res.ok || !data.exists) {
+          setError("Room not found. Check the code or create a new room.");
+          setIsValidating(false);
+          return;
+        }
+      } catch (err) {
+        setError("Failed to validate room. Please try again.");
+        setIsValidating(false);
+        return;
+      }
     }
 
     setIsValidating(false);

@@ -89,18 +89,16 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
       }
       setUserId(storedId);
 
-      const storedName = localStorage.getItem("syncbeat_user_name") || "";
-      setUserNameState(storedName);
-      if (storedName) {
+      // Check if user has joined THIS specific room before
+      const storedRoomJoin = localStorage.getItem(`syncbeat_room_${roomId}_joined`);
+      const storedName = localStorage.getItem(`syncbeat_room_${roomId}_name`) || "";
+      const storedJoinedAt = localStorage.getItem(`syncbeat_room_${roomId}_joined_at`);
+
+      if (storedRoomJoin === "true" && storedName && storedJoinedAt) {
+        setUserNameState(storedName);
+        setJoinedAt(parseInt(storedJoinedAt, 10));
         setHasJoined(true);
       }
-
-      let storedJoined = localStorage.getItem(`syncbeat_joined_at_${roomId}`);
-      if (!storedJoined) {
-        storedJoined = Date.now().toString();
-        localStorage.setItem(`syncbeat_joined_at_${roomId}`, storedJoined);
-      }
-      setJoinedAt(parseInt(storedJoined, 10));
     }
   }, [roomId]);
 
@@ -128,13 +126,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
   const setUserName = (name: string) => {
     setUserNameState(name);
     if (typeof window !== "undefined") {
-      localStorage.setItem("syncbeat_user_name", name);
-      let storedJoined = localStorage.getItem(`syncbeat_joined_at_${roomId}`);
-      if (!storedJoined) {
-        storedJoined = Date.now().toString();
-        localStorage.setItem(`syncbeat_joined_at_${roomId}`, storedJoined);
-        setJoinedAt(parseInt(storedJoined, 10));
-      }
+      localStorage.setItem(`syncbeat_room_${roomId}_name`, name);
     }
   };
 
@@ -183,15 +175,15 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
 
   // Poll database on a slower interval as a fallback
   useEffect(() => {
-    if (!hasJoined || !roomId) return;
+    if (!hasJoined || !roomId || !userId || !userName) return;
     fetchQueue();
     const interval = setInterval(fetchQueue, 5000);
     return () => clearInterval(interval);
-  }, [hasJoined, roomId]);
+  }, [hasJoined, roomId, userId, userName]);
 
   // Supabase Broadcast & Presence Initialization
   useEffect(() => {
-    if (!hasJoined || !roomId || !supabaseClient || !userId || !joinedAt) return;
+    if (!hasJoined || !roomId || !supabaseClient || !userId || !userName || !joinedAt) return;
 
     const cleanRoomCode = roomId.toLowerCase().trim();
     const channel = supabaseClient.channel(`room:${cleanRoomCode}`, {
@@ -230,7 +222,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
       .on("presence", { event: "sync" }, () => {
         const presenceState = channel.presenceState();
         const activeMembers: Member[] = [];
-        
+
         Object.keys(presenceState).forEach((key) => {
           const presences = presenceState[key] as any[];
           presences.forEach((p) => {
@@ -287,19 +279,19 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
       channel.unsubscribe();
       channelRef.current = null;
     };
-  }, [hasJoined, roomId, userId, userName, joinedAt]);
+  }, [hasJoined, roomId, supabaseClient, userId, userName, joinedAt]);
 
   const joinRoom = (name: string) => {
-    if (typeof window !== "undefined") {
-      let storedJoined = localStorage.getItem(`syncbeat_joined_at_${roomId}`);
-      if (!storedJoined) {
-        storedJoined = Date.now().toString();
-        localStorage.setItem(`syncbeat_joined_at_${roomId}`, storedJoined);
-        setJoinedAt(parseInt(storedJoined, 10));
-      }
-    }
+    const timestamp = Date.now();
     setUserName(name);
+    setJoinedAt(timestamp);
     setHasJoined(true);
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`syncbeat_room_${roomId}_joined`, "true");
+      localStorage.setItem(`syncbeat_room_${roomId}_name`, name);
+      localStorage.setItem(`syncbeat_room_${roomId}_joined_at`, timestamp.toString());
+    }
   };
 
   const updatePlaybackState = async (state: Partial<PlaybackState>) => {

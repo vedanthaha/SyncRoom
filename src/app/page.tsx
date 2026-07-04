@@ -11,38 +11,18 @@ export default function Home() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleCreateRoom = async () => {
-    setIsLoading(true);
+  const handleCreateRoom = () => {
     // Generate a beautiful short room code, e.g. "cozy-jazz-123"
     const words = ["cozy", "warm", "chill", "soft", "sweet", "calm", "dreamy"];
     const music = ["beat", "jazz", "lofi", "tune", "song", "note", "sound"];
     const word1 = words[Math.floor(Math.random() * words.length)];
     const word2 = music[Math.floor(Math.random() * music.length)];
     const num = Math.floor(Math.random() * 900) + 100;
-    
+
     const roomId = `${word1}-${word2}-${num}`;
 
-    try {
-      const res = await fetch("/api/rooms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomCode: roomId }),
-      });
-      const data = await res.json();
-      
-      if (!res.ok || !data.success) {
-        setError(data.error || "Failed to create room. Please try again.");
-        setIsLoading(false);
-        return;
-      }
-    } catch (err) {
-      console.error("Failed to create room:", err);
-      setError("Failed to create room. Please try again.");
-      setIsLoading(false);
-      return;
-    }
-    
-    router.push(`/room/${roomId}`);
+    // Navigate directly to the room - room will be created after nickname is entered
+    router.push(`/room/${roomId}?create=true`);
   };
 
   const handleJoinSubmit = async (e: React.FormEvent) => {
