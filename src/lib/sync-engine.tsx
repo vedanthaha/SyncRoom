@@ -1,0 +1,594 @@
+"use client";
+
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import { supabase } from "@/lib/supabase";
+
+export interface QueueItem {
+  id: string;
+  videoId: string;
+  title: string;
+  thumbnail: string;
+  duration: string;
+  addedBy: string;
+}
+
+export interface PlaybackState {
+  videoId: string | null;
+  currentIndex: number;
+  isPlaying: boolean;
+  currentTime: number;
+  lastUpdated: number;
+  triggeredBy?: string;
+}
+
+export interface Member {
+  id: string;
+  name: string;
+  isHost: boolean;
+  joinedAt: number;
+}
+
+interface SyncContextType {
+  roomId: string;
+  userId: string;
+  userName: string;
+  isHost: boolean;
+  isSupabase: boolean;
+  members: Member[];
+  queue: QueueItem[];
+  playbackState: PlaybackState;
+  setUserName: (name: string) => void;
+  updatePlaybackState: (state: Partial<PlaybackState>) => void;
+  addToQueue: (video: Omit<QueueItem, "id" | "addedBy">) => void;
+  removeFromQueue: (itemId: string) => void;
+  clearQueue: () => void;
+  joinRoom: (name: string) => void;
+  hasJoined: boolean;
+}
+
+const SyncContext = createContext<SyncContextType | undefined>(undefined);
+
+const generateId = () => Math.random().toString(36).substring(2, 9);
+
+export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode }> = ({ roomId, children }) => {
+  const [userId, setUserId] = useState("");
+  const [userName, setUserNameState] = useState("");
+  const [hasJoined, setHasJoined] = useState(false);
+  const [joinedAt, setJoinedAt] = useState<number>(0);
+  const [dbRoomId, setDbRoomId] = useState<string | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [playbackState, setPlaybackState] = useState<PlaybackState>({
+    videoId: null,
+    currentIndex: 0,
+    isPlaying: false,
+    currentTime: 0,
+    lastUpdated: 0,
+  });
+
+  const queueRef = useRef<QueueItem[]>([]);
+  const playbackStateRef = useRef<PlaybackState>(playbackState);
+  const membersRef = useRef<Member[]>([]);
+  const channelRef = useRef<any>(null);
+
+  // Initialize client state safely to avoid hydration mismatches
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      let storedId = localStorage.getItem("syncbeat_user_id");
+      if (!storedId) {
+        storedId = generateId();
+        localStorage.setItem("syncbeat_user_id", storedId);
+      }
+      setUserId(storedId);
+
+      const storedName = localStorage.getItem("syncbeat_user_name") || "";
+      setUserNameState(storedName);
+      if (storedName) {
+        setHasJoined(true);
+      }
+
+      let storedJoined = localStorage.getItem(`syncbeat_joined_at_${roomId}`);
+      if (!storedJoined) {
+        storedJoined = Date.now().toString();
+        localStorage.setItem(`syncbeat_joined_at_${roomId}`, storedJoined);
+      }
+      setJoinedAt(parseInt(storedJoined, 10));
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+
+  useEffect(() => {
+    playbackStateRef.current = playbackState;
+  }, [playbackState]);
+
+  useEffect(() => {
+    membersRef.current = members;
+  }, [members]);
+
+  const isHost =
+    members.length === 0 ||
+    members.find((m) => m.id === userId) === undefined ||
+    members.sort((a, b) => a.joinedAt - b.joinedAt)[0]?.id === userId;
+  const isHostRef = useRef(isHost);
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
+
+  const setUserName = (name: string) => {
+    setUserNameState(name);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("syncbeat_user_name", name);
+      let storedJoined = localStorage.getItem(`syncbeat_joined_at_${roomId}`);
+      if (!storedJoined) {
+        storedJoined = Date.now().toString();
+        localStorage.setItem(`syncbeat_joined_at_${roomId}`, storedJoined);
+        setJoinedAt(parseInt(storedJoined, 10));
+      }
+    }
+  };
+
+  // Fetch queue and room status from PostgreSQL
+  const fetchQueue = async () => {
+    if (!roomId) return;
+    try {
+      const res = await fetch(
+        `/api/sync?roomCode=${encodeURIComponent(roomId)}&userId=${encodeURIComponent(userId)}&userName=${encodeURIComponent(userName)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.dbRoomId) {
+          setDbRoomId(data.dbRoomId);
+        }
+        if (data.queue) {
+          const localQueueIds = queueRef.current.map((q) => q.id).join(",");
+          const remoteQueueIds = data.queue.map((q: any) => q.id).join(",");
+          if (localQueueIds !== remoteQueueIds) {
+            setQueue(data.queue);
+          }
+        }
+        // Initialize playbackState if nothing is loaded yet
+        if (data.playbackState && !playbackStateRef.current.videoId && data.playbackState.videoId) {
+          setPlaybackState((prev) => ({
+            ...prev,
+            ...data.playbackState,
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching queue:", err);
+    }
+  };
+
+  // Poll database on a slower interval as a fallback
+  useEffect(() => {
+    if (!hasJoined || !roomId) return;
+    fetchQueue();
+    const interval = setInterval(fetchQueue, 5000);
+    return () => clearInterval(interval);
+  }, [hasJoined, roomId]);
+
+  // Supabase Broadcast & Presence Initialization
+  useEffect(() => {
+    if (!hasJoined || !roomId || !supabase || !userId || !joinedAt) return;
+
+    const channel = supabase.channel(`room:${roomId}`, {
+      config: {
+        presence: {
+          key: userId,
+        },
+      },
+    });
+
+    // Listen to live playback broadcast changes
+    channel.on("broadcast", { event: "playback" }, ({ payload }) => {
+      if (!isHostRef.current) {
+        setPlaybackState(payload);
+      }
+    });
+
+    // Listen to live playback sync requests (host responds with state)
+    channel.on("broadcast", { event: "request_sync" }, () => {
+      if (isHostRef.current && playbackStateRef.current.videoId) {
+        channel.send({
+          type: "broadcast",
+          event: "playback",
+          payload: playbackStateRef.current,
+        });
+      }
+    });
+
+    // Listen to queue changes broadcast
+    channel.on("broadcast", { event: "queue_change" }, () => {
+      fetchQueue();
+    });
+
+    // Listen to presence events
+    channel
+      .on("presence", { event: "sync" }, () => {
+        const presenceState = channel.presenceState();
+        const activeMembers: Member[] = [];
+        
+        Object.keys(presenceState).forEach((key) => {
+          const presences = presenceState[key] as any[];
+          presences.forEach((p) => {
+            activeMembers.push({
+              id: p.clientId || p.userId || key,
+              name: p.nickname || p.userName || "Guest",
+              isHost: false, // determined dynamically
+              joinedAt: p.joinedAt || Date.now(),
+            });
+          });
+        });
+
+        // Determine host by oldest member
+        const sorted = activeMembers.sort((a, b) => a.joinedAt - b.joinedAt);
+        if (sorted.length > 0) {
+          sorted.forEach((m, idx) => {
+            m.isHost = idx === 0;
+          });
+        }
+        setMembers(sorted);
+      })
+      .on("presence", { event: "join" }, ({ key, newPresences }) => {
+        // If we are host, broadcast our current state to new joins
+        if (isHostRef.current && playbackStateRef.current.videoId) {
+          channel.send({
+            type: "broadcast",
+            event: "playback",
+            payload: playbackStateRef.current,
+          });
+        }
+      });
+
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.track({
+          clientId: userId,
+          nickname: userName,
+          joinedAt: joinedAt,
+          isHost: isHostRef.current,
+        });
+
+        // Request current playback state from host
+        channel.send({
+          type: "broadcast",
+          event: "request_sync",
+          payload: { userId },
+        });
+      }
+    });
+
+    channelRef.current = channel;
+
+    return () => {
+      channel.unsubscribe();
+      channelRef.current = null;
+    };
+  }, [hasJoined, roomId, userId, userName, joinedAt]);
+
+  const joinRoom = (name: string) => {
+    if (typeof window !== "undefined") {
+      let storedJoined = localStorage.getItem(`syncbeat_joined_at_${roomId}`);
+      if (!storedJoined) {
+        storedJoined = Date.now().toString();
+        localStorage.setItem(`syncbeat_joined_at_${roomId}`, storedJoined);
+        setJoinedAt(parseInt(storedJoined, 10));
+      }
+    }
+    setUserName(name);
+    setHasJoined(true);
+  };
+
+  const updatePlaybackState = async (state: Partial<PlaybackState>) => {
+    const newState: PlaybackState = {
+      ...playbackStateRef.current,
+      ...state,
+      lastUpdated: Date.now(),
+      triggeredBy: userId,
+    };
+
+    setPlaybackState(newState);
+
+    // 1. Broadcast the change immediately via Supabase Broadcast
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "playback",
+        payload: newState,
+      });
+    }
+
+    // 2. Persist to PostgreSQL (excluding timestamps)
+    const isStateChanged = 
+      state.videoId !== undefined || 
+      state.currentIndex !== undefined || 
+      state.isPlaying !== undefined;
+
+    if (dbRoomId && isStateChanged) {
+      try {
+        await fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "playback_change",
+            dbRoomId,
+            payload: {
+              videoId: newState.videoId,
+              currentIndex: newState.currentIndex,
+              isPlaying: newState.isPlaying,
+              currentTime: 0, // Never store playback timestamps in PostgreSQL
+              lastUpdated: Date.now(),
+            },
+          }),
+        });
+      } catch (err) {
+        console.error("Failed to update playback state on server:", err);
+      }
+    }
+  };
+
+  const addToQueue = async (video: Omit<QueueItem, "id" | "addedBy">) => {
+    const payload = {
+      videoId: video.videoId,
+      title: video.title,
+      thumbnail: video.thumbnail,
+      duration: video.duration,
+      addedBy: userName || "Guest",
+    };
+
+    // Optimistic UI Update
+    const tempItem: QueueItem = {
+      ...video,
+      id: `temp-${Date.now()}`,
+      addedBy: userName || "Guest",
+    };
+    const newQueue = [...queueRef.current, tempItem];
+    setQueue(newQueue);
+
+    // If nothing was playing, start playing this newly added track immediately!
+    const wasIdle = !playbackStateRef.current.videoId;
+    if (wasIdle) {
+      const initialPlayback = {
+        videoId: video.videoId,
+        currentIndex: newQueue.length - 1,
+        isPlaying: true,
+        currentTime: 0,
+        lastUpdated: Date.now(),
+      };
+      setPlaybackState(initialPlayback);
+      
+      // Broadcast playback immediately
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "playback",
+          payload: initialPlayback,
+        });
+      }
+
+      if (dbRoomId) {
+        fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "playback_change",
+            dbRoomId,
+            payload: {
+              videoId: initialPlayback.videoId,
+              currentIndex: initialPlayback.currentIndex,
+              isPlaying: initialPlayback.isPlaying,
+              currentTime: 0,
+              lastUpdated: Date.now(),
+            },
+          }),
+        }).catch(console.error);
+      }
+    }
+
+    if (dbRoomId) {
+      try {
+        const res = await fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "queue_add",
+            dbRoomId,
+            payload,
+          }),
+        });
+        if (res.ok) {
+          // Broadcast queue change to others
+          if (channelRef.current) {
+            channelRef.current.send({
+              type: "broadcast",
+              event: "queue_change",
+              payload: {},
+            });
+          }
+          fetchQueue();
+        }
+      } catch (err) {
+        console.error("Failed to add to queue:", err);
+      }
+    }
+  };
+
+  const removeFromQueue = async (itemId: string) => {
+    const newQueue = queueRef.current.filter((item) => item.id !== itemId);
+    setQueue(newQueue);
+
+    // If the removed item was currently playing, handle loading the next one
+    const currentPlayingItem = queueRef.current[playbackStateRef.current.currentIndex];
+    if (currentPlayingItem && currentPlayingItem.id === itemId) {
+      const nextIndex = playbackStateRef.current.currentIndex; // Index remains same but points to next item now
+      let nextPlayback: PlaybackState;
+      if (nextIndex < newQueue.length) {
+        nextPlayback = {
+          videoId: newQueue[nextIndex].videoId,
+          currentIndex: nextIndex,
+          isPlaying: true,
+          currentTime: 0,
+          lastUpdated: Date.now(),
+        };
+      } else {
+        nextPlayback = {
+          videoId: null,
+          currentIndex: 0,
+          isPlaying: false,
+          currentTime: 0,
+          lastUpdated: Date.now(),
+        };
+      }
+
+      setPlaybackState(nextPlayback);
+
+      // Broadcast playback change
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "playback",
+          payload: nextPlayback,
+        });
+      }
+
+      if (dbRoomId) {
+        fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "playback_change",
+            dbRoomId,
+            payload: {
+              videoId: nextPlayback.videoId,
+              currentIndex: nextPlayback.currentIndex,
+              isPlaying: nextPlayback.isPlaying,
+              currentTime: 0,
+              lastUpdated: Date.now(),
+            },
+          }),
+        }).catch(console.error);
+      }
+    }
+
+    if (dbRoomId) {
+      try {
+        const res = await fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "queue_remove",
+            dbRoomId,
+            payload: { itemId },
+          }),
+        });
+        if (res.ok) {
+          if (channelRef.current) {
+            channelRef.current.send({
+              type: "broadcast",
+              event: "queue_change",
+              payload: {},
+            });
+          }
+          fetchQueue();
+        }
+      } catch (err) {
+        console.error("Failed to remove from queue:", err);
+      }
+    }
+  };
+
+  const clearQueue = async () => {
+    setQueue([]);
+    const nextPlayback = {
+      videoId: null,
+      currentIndex: 0,
+      isPlaying: false,
+      currentTime: 0,
+      lastUpdated: Date.now(),
+    };
+    setPlaybackState(nextPlayback);
+
+    // Broadcast playback change
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "playback",
+        payload: nextPlayback,
+      });
+    }
+
+    if (dbRoomId) {
+      try {
+        await fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "queue_clear",
+            dbRoomId,
+          }),
+        });
+        
+        await fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "playback_change",
+            dbRoomId,
+            payload: {
+              videoId: nextPlayback.videoId,
+              currentIndex: nextPlayback.currentIndex,
+              isPlaying: nextPlayback.isPlaying,
+              currentTime: 0,
+              lastUpdated: Date.now(),
+            },
+          }),
+        });
+
+        if (channelRef.current) {
+          channelRef.current.send({
+            type: "broadcast",
+            event: "queue_change",
+            payload: {},
+          });
+        }
+      } catch (err) {
+        console.error("Failed to clear queue:", err);
+      }
+    }
+  };
+
+  return (
+    <SyncContext.Provider
+      value={{
+        roomId,
+        userId,
+        userName,
+        isHost,
+        isSupabase: true,
+        members,
+        queue,
+        playbackState,
+        setUserName,
+        updatePlaybackState,
+        addToQueue,
+        removeFromQueue,
+        clearQueue,
+        joinRoom,
+        hasJoined,
+      }}
+    >
+      {children}
+    </SyncContext.Provider>
+  );
+};
+
+export const useSync = () => {
+  const context = useContext(SyncContext);
+  if (!context) {
+    throw new Error("useSync must be used within a SyncProvider");
+  }
+  return context;
+};
