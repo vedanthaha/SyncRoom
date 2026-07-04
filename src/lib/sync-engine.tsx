@@ -133,12 +133,17 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
   // Fetch queue and room status from PostgreSQL
   const fetchQueue = async () => {
     if (!roomId) return;
+    console.log('🔄 fetchQueue called for room:', roomId);
     try {
       const res = await fetch(
         `/api/sync?roomCode=${encodeURIComponent(roomId)}&userId=${encodeURIComponent(userId)}&userName=${encodeURIComponent(userName)}`
       );
+      console.log('📥 fetchQueue response status:', res.status);
+
       if (res.ok) {
         const data = await res.json();
+        console.log('📥 fetchQueue data:', data);
+
         if (data.dbRoomId) {
           setDbRoomId(data.dbRoomId);
         }
@@ -146,11 +151,13 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
           const localQueueIds = queueRef.current.map((q) => q.id).join(",");
           const remoteQueueIds = data.queue.map((q: any) => q.id).join(",");
           if (localQueueIds !== remoteQueueIds) {
+            console.log('📋 Updating queue:', data.queue);
             setQueue(data.queue);
           }
         }
         // Initialize playbackState if nothing is loaded yet
         if (data.playbackState && !playbackStateRef.current.videoId && data.playbackState.videoId) {
+          console.log('▶️ Initializing playback state:', data.playbackState);
           setPlaybackState((prev) => ({
             ...prev,
             ...data.playbackState,
@@ -159,6 +166,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
 
         // Dynamically initialize Supabase client if it's null on the client-side
         if (data.supabaseUrl && data.supabaseAnonKey && !supabaseClient) {
+          console.log('🔌 Initializing Supabase client dynamically');
           const { createClient } = await import("@supabase/supabase-js");
           const client = createClient(data.supabaseUrl, data.supabaseAnonKey, {
             auth: {
@@ -167,9 +175,11 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
           });
           setSupabaseClient(client);
         }
+      } else {
+        console.error('❌ fetchQueue failed:', res.status, await res.text());
       }
     } catch (err) {
-      console.error("Error fetching queue:", err);
+      console.error("❌ Error fetching queue:", err);
     }
   };
 
