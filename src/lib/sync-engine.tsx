@@ -210,8 +210,15 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
 
     // Listen to live playback broadcast changes
     channel.on("broadcast", { event: "playback" }, ({ payload }: { payload: any }) => {
+      console.log('📺 Received playback broadcast:', payload);
+      console.log('📺 Current isHost:', isHostRef.current);
+      console.log('📺 Current playback state:', playbackStateRef.current);
+
       if (!isHostRef.current) {
+        console.log('✅ Applying playback state (guest)');
         setPlaybackState(payload);
+      } else {
+        console.log('⏭️ Skipping playback update (host)');
       }
     });
 
@@ -334,15 +341,23 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
       triggeredBy: userId,
     };
 
+    console.log('🎬 updatePlaybackState called:', state);
+    console.log('🎬 New state:', newState);
+    console.log('🎬 Channel exists:', !!channelRef.current);
+
     setPlaybackState(newState);
 
     // 1. Broadcast the change immediately via Supabase Broadcast
     if (channelRef.current) {
+      console.log('📤 Broadcasting playback change...');
       channelRef.current.send({
         type: "broadcast",
         event: "playback",
         payload: newState,
       });
+      console.log('✅ Broadcast sent');
+    } else {
+      console.warn('❌ No channel available to broadcast');
     }
 
     // 2. Persist to PostgreSQL (excluding timestamps)
