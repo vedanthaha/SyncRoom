@@ -183,8 +183,21 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
 
   // Supabase Broadcast & Presence Initialization
   useEffect(() => {
-    if (!hasJoined || !roomId || !supabaseClient || !userId || !userName || !joinedAt) return;
+    console.log('🔍 Supabase Effect Check:', {
+      hasJoined,
+      roomId,
+      hasSupabaseClient: !!supabaseClient,
+      userId,
+      userName,
+      joinedAt
+    });
 
+    if (!hasJoined || !roomId || !supabaseClient || !userId || !userName || !joinedAt) {
+      console.log('❌ Supabase effect skipped - missing dependencies');
+      return;
+    }
+
+    console.log('✅ Initializing Supabase channel...');
     const cleanRoomCode = roomId.toLowerCase().trim();
     const channel = supabaseClient.channel(`room:${cleanRoomCode}`, {
       config: {
@@ -193,6 +206,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
         },
       },
     });
+    console.log('📡 Channel created:', `room:${cleanRoomCode}`);
 
     // Listen to live playback broadcast changes
     channel.on("broadcast", { event: "playback" }, ({ payload }: { payload: any }) => {
@@ -220,11 +234,14 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
     // Listen to presence events
     channel
       .on("presence", { event: "sync" }, () => {
+        console.log('🔄 Presence sync event fired');
         const presenceState = channel.presenceState();
+        console.log('👥 Presence state:', presenceState);
         const activeMembers: Member[] = [];
 
         Object.keys(presenceState).forEach((key) => {
           const presences = presenceState[key] as any[];
+          console.log(`Processing presence key: ${key}`, presences);
           presences.forEach((p) => {
             activeMembers.push({
               id: p.clientId || p.userId || key,
@@ -235,6 +252,8 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
           });
         });
 
+        console.log('👥 Active members before sorting:', activeMembers);
+
         // Determine host by oldest member
         const sorted = activeMembers.sort((a, b) => a.joinedAt - b.joinedAt);
         if (sorted.length > 0) {
@@ -242,9 +261,11 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
             m.isHost = idx === 0;
           });
         }
+        console.log('👥 Final members list:', sorted);
         setMembers(sorted);
       })
       .on("presence", { event: "join" }, ({ key, newPresences }: { key: string; newPresences: any[] }) => {
+        console.log('➕ User joined:', key, newPresences);
         // If we are host, broadcast our current state to new joins
         if (isHostRef.current && playbackStateRef.current.videoId) {
           channel.send({
@@ -253,16 +274,23 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
             payload: playbackStateRef.current,
           });
         }
+      })
+      .on("presence", { event: "leave" }, ({ key, leftPresences }: { key: string; leftPresences: any[] }) => {
+        console.log('➖ User left:', key, leftPresences);
       });
 
     channel.subscribe(async (status: string) => {
+      console.log('📡 Channel subscription status:', status);
       if (status === "SUBSCRIBED") {
-        await channel.track({
+        const trackData = {
           clientId: userId,
           nickname: userName,
           joinedAt: joinedAt,
           isHost: isHostRef.current,
-        });
+        };
+        console.log('📤 Tracking presence with data:', trackData);
+        const trackResult = await channel.track(trackData);
+        console.log('✅ Track result:', trackResult);
 
         // Request current playback state from host
         channel.send({
@@ -270,12 +298,14 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
           event: "request_sync",
           payload: { userId },
         });
+        console.log('📤 Sent request_sync broadcast');
       }
     });
 
     channelRef.current = channel;
 
     return () => {
+      console.log('🧹 Cleaning up Supabase channel');
       channel.unsubscribe();
       channelRef.current = null;
     };
@@ -283,6 +313,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
 
   const joinRoom = (name: string) => {
     const timestamp = Date.now();
+    console.log('🚪 Joining room:', { name, timestamp, roomId });
     setUserName(name);
     setJoinedAt(timestamp);
     setHasJoined(true);
@@ -292,6 +323,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
       localStorage.setItem(`syncbeat_room_${roomId}_name`, name);
       localStorage.setItem(`syncbeat_room_${roomId}_joined_at`, timestamp.toString());
     }
+    console.log('✅ Room join complete');
   };
 
   const updatePlaybackState = async (state: Partial<PlaybackState>) => {

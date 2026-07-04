@@ -1,10 +1,15 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { useSync } from "@/lib/sync-engine";
 
 export const Members: React.FC = () => {
   const { members, userId } = useSync();
+
+  useEffect(() => {
+    console.log('👥 Members component - members updated:', members);
+    console.log('👥 Members component - userId:', userId);
+  }, [members, userId]);
 
   return (
     <div className="w-full py-4 px-6 bg-surface-cozy/45 border border-border-cozy/70 rounded-[20px] flex items-center justify-center select-none animate-fade-in">
@@ -12,6 +17,9 @@ export const Members: React.FC = () => {
         <span className="text-[11px] font-bold text-text-muted uppercase tracking-widest mr-1 select-none">
           Listening Room:
         </span>
+        {members.length === 0 && (
+          <span className="text-xs text-text-muted">No members connected</span>
+        )}
         {members.map((member) => {
           const isSelf = member.id === userId;
           return (
