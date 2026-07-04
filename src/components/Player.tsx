@@ -157,8 +157,9 @@ export const Player: React.FC = () => {
     // Load new video if needed
     const currentVideoUrl = targetPlayer.getVideoUrl ? targetPlayer.getVideoUrl() : "";
     const isDifferentVideo = playbackState.videoId && !currentVideoUrl.includes(playbackState.videoId);
-    
+
     if (isDifferentVideo) {
+      console.log('🎬 Loading new video:', playbackState.videoId);
       targetPlayer.loadVideoById({
         videoId: playbackState.videoId,
         startSeconds: playbackState.currentTime
@@ -169,8 +170,10 @@ export const Player: React.FC = () => {
     // Play/Pause alignment
     const playerState = targetPlayer.getPlayerState();
     if (playbackState.isPlaying && playerState !== 1) {
+      console.log('▶️ Syncing: Playing video');
       targetPlayer.playVideo();
     } else if (!playbackState.isPlaying && playerState === 1) {
+      console.log('⏸️ Syncing: Pausing video');
       targetPlayer.pauseVideo();
     }
 
@@ -182,7 +185,18 @@ export const Player: React.FC = () => {
     }
 
     const currentPlTime = targetPlayer.getCurrentTime() || 0;
-    if (Math.abs(currentPlTime - targetTime) > 2.2) {
+    const drift = Math.abs(currentPlTime - targetTime);
+
+    console.log('⏱️ Sync check:', {
+      currentTime: currentPlTime.toFixed(2),
+      targetTime: targetTime.toFixed(2),
+      drift: drift.toFixed(2),
+      willSync: drift > 1.0
+    });
+
+    // Reduced threshold from 2.2s to 1.0s for tighter sync
+    if (drift > 1.0) {
+      console.log('🎯 Seeking to:', targetTime.toFixed(2));
       targetPlayer.seekTo(targetTime, true);
     }
   };
@@ -219,7 +233,7 @@ export const Player: React.FC = () => {
           currentTime: time,
           lastUpdated: Date.now(),
         });
-      }, 5000); // Sync every 5 seconds
+      }, 2000); // Sync every 2 seconds (reduced from 5s for tighter sync)
     }
 
     return () => {
@@ -373,10 +387,10 @@ export const Player: React.FC = () => {
 
       {/* 2. Track Meta (responsive typography) */}
       <div className="text-center max-w-[520px] w-full px-4 mb-3">
-        <h2 className="text-text-primary text-2xl sm:text-3xl md:text-[42px] lg:text-[50px] font-black tracking-tight leading-tight line-clamp-2 min-h-[2.5rem] sm:min-h-[3rem] md:min-h-[58px]">
+        <h2 className="text-text-primary text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight leading-tight line-clamp-2 mb-2">
           {currentSong ? currentSong.title : "Nothing playing"}
         </h2>
-        <p className="text-text-secondary text-base sm:text-lg md:text-2xl lg:text-3xl font-semibold mt-2 line-clamp-1 min-h-[1.5rem] sm:min-h-[2rem] md:min-h-[38px]">
+        <p className="text-text-secondary text-sm sm:text-base md:text-lg lg:text-xl font-semibold line-clamp-1">
           {currentSong ? `Queued by ${currentSong.addedBy}` : "Cozy vibes await"}
         </p>
       </div>
