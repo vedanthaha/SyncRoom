@@ -221,25 +221,27 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
     // Listen to live playback broadcast changes
     channel.on("broadcast", { event: "playback" }, ({ payload }: { payload: any }) => {
       console.log('📺 Received playback broadcast:', payload);
-      console.log('📺 Current isHost:', isHostRef.current);
+      console.log('📺 Current userId:', userId, 'Broadcast from:', payload.triggeredBy);
       console.log('📺 Current playback state:', playbackStateRef.current);
 
-      if (!isHostRef.current) {
-        // Only apply if it's newer than what we have OR if we don't have anything
-        const isNewer = !playbackStateRef.current.lastUpdated ||
-                       payload.lastUpdated >= playbackStateRef.current.lastUpdated;
+      // Don't apply our own broadcasts
+      if (payload.triggeredBy === userId) {
+        console.log('⏭️ Skipping own broadcast');
+        return;
+      }
 
-        // Special case: If video changed, always apply (new song starting)
-        const isNewVideo = payload.videoId !== playbackStateRef.current.videoId;
+      // Only apply if it's newer than what we have OR if we don't have anything
+      const isNewer = !playbackStateRef.current.lastUpdated ||
+                     payload.lastUpdated >= playbackStateRef.current.lastUpdated;
 
-        if (isNewVideo || isNewer) {
-          console.log('✅ Applying playback state (guest)');
-          setPlaybackState(payload);
-        } else {
-          console.log('⏭️ Skipping stale playback update (older than current)');
-        }
+      // Special case: If video changed, always apply (new song starting)
+      const isNewVideo = payload.videoId !== playbackStateRef.current.videoId;
+
+      if (isNewVideo || isNewer) {
+        console.log('✅ Applying playback state from another user');
+        setPlaybackState(payload);
       } else {
-        console.log('⏭️ Skipping playback update (host)');
+        console.log('⏭️ Skipping stale playback update (older than current)');
       }
     });
 

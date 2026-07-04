@@ -131,14 +131,14 @@ export const Player: React.FC = () => {
     }
   };
 
-  // Synchronize playback state changes from other users (and load new videos for host)
+  // Synchronize playback state changes from other users (and load new videos)
   useEffect(() => {
     if (!player || !player.getPlayerState) return;
 
     // Both host and guest must load the new video when videoId changes
     const currentVideoUrl = player.getVideoUrl ? player.getVideoUrl() : "";
     const isDifferentVideo = playbackState.videoId && !currentVideoUrl.includes(playbackState.videoId);
-    
+
     if (isDifferentVideo) {
       player.loadVideoById({
         videoId: playbackState.videoId,
@@ -147,9 +147,9 @@ export const Player: React.FC = () => {
       return;
     }
 
-    if (isHost) return; // The host is the source of truth, they do not sync play/pause or offset from others
+    // Sync to other users' changes (skip our own broadcasts)
     syncGuestPlayer(player);
-  }, [playbackState.videoId, playbackState.isPlaying, playbackState.lastUpdated, isHost]);
+  }, [playbackState.videoId, playbackState.isPlaying, playbackState.lastUpdated]);
 
   const syncGuestPlayer = (targetPlayer: any) => {
     if (!targetPlayer) return;
@@ -222,11 +222,11 @@ export const Player: React.FC = () => {
     };
   }, [player, duration, isScrubbing]);
 
-  // Host periodically broadcasts position to keep drift low
+  // Periodically broadcast position to keep drift low (whoever is playing broadcasts)
   useEffect(() => {
     if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
 
-    if (isHost && player && playbackState.isPlaying) {
+    if (player && playbackState.isPlaying) {
       syncIntervalRef.current = setInterval(() => {
         const time = player.getCurrentTime() || 0;
         updatePlaybackState({
@@ -239,12 +239,11 @@ export const Player: React.FC = () => {
     return () => {
       if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
     };
-  }, [isHost, player, playbackState.isPlaying]);
+  }, [player, playbackState.isPlaying]);
 
   // Control commands
   const togglePlay = () => {
-    if (!isHost) return;
-
+    // Allow both host and guests to control playback
     if (!playbackState.videoId && queue.length > 0) {
       const idx = playbackState.currentIndex < queue.length && playbackState.currentIndex >= 0 ? playbackState.currentIndex : 0;
       updatePlaybackState({
@@ -261,7 +260,7 @@ export const Player: React.FC = () => {
     const nextPlaying = !playbackState.isPlaying;
     const time = player.getCurrentTime() || 0;
 
-    console.log('🎮 togglePlay:', { nextPlaying, currentTime: time });
+    console.log('🎮 togglePlay:', { nextPlaying, currentTime: time, isHost });
 
     // Update state first
     updatePlaybackState({
@@ -279,16 +278,16 @@ export const Player: React.FC = () => {
   };
 
   const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!isHost) return;
+    // Allow both host and guests to seek
     setIsScrubbing(true);
     const value = parseFloat(e.target.value);
     setCurrentTime(value);
   };
 
   const handleSeekEnd = (e: React.MouseEvent<HTMLInputElement> | React.TouchEvent<HTMLInputElement>) => {
-    if (!player || !isHost) return;
+    if (!player) return;
     const value = parseFloat((e.target as HTMLInputElement).value);
-    
+
     player.seekTo(value, true);
     updatePlaybackState({
       currentTime: value,
@@ -310,7 +309,7 @@ export const Player: React.FC = () => {
   };
 
   const handleSkip = () => {
-    if (!isHost) return;
+    // Allow both host and guests to skip
     const nextIndex = playbackState.currentIndex + 1;
     if (nextIndex < queue.length) {
       updatePlaybackState({
@@ -329,7 +328,8 @@ export const Player: React.FC = () => {
   };
 
   const handlePrevious = () => {
-    if (!isHost || playbackState.currentIndex <= 0) return;
+    // Allow both host and guests to go to previous
+    if (playbackState.currentIndex <= 0) return;
     const prevIndex = playbackState.currentIndex - 1;
     updatePlaybackState({
       currentIndex: prevIndex,
@@ -410,7 +410,7 @@ export const Player: React.FC = () => {
             onChange={handleSeekChange}
             onMouseUp={handleSeekEnd}
             onTouchEnd={handleSeekEnd}
-            disabled={!isHost || !playbackState.videoId}
+            disabled={!playbackState.videoId}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20 disabled:cursor-not-allowed"
           />
           {/* Active fill */}
@@ -451,7 +451,7 @@ export const Player: React.FC = () => {
         {/* Previous Button (SkipBack) */}
         <button
           onClick={handlePrevious}
-          disabled={!isHost || playbackState.currentIndex <= 0}
+          disabled={playbackState.currentIndex <= 0}
           className="w-16 h-16 rounded-full text-text-secondary hover:text-text-primary hover:bg-card-cozy border border-transparent hover:border-border-cozy active:scale-95 transition-all flex items-center justify-center disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
           title="Previous Song"
         >
@@ -461,7 +461,7 @@ export const Player: React.FC = () => {
         {/* Main Play/Pause (Reduced by ~15% from w-24/h-24 to w-20/h-20) */}
         <button
           onClick={togglePlay}
-          disabled={!isHost || (queue.length === 0 && !playbackState.videoId)}
+          disabled={queue.length === 0 && !playbackState.videoId}
           className="w-20 h-20 rounded-full bg-brand hover:bg-brand-hover text-text-primary flex items-center justify-center active:scale-95 transition-all shadow-[0_8px_35px_rgba(28,57,187,0.4)] hover:shadow-[0_10px_40px_rgba(54,88,231,0.5)] disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
           title={playbackState.isPlaying ? "Pause" : "Play"}
         >
@@ -475,7 +475,7 @@ export const Player: React.FC = () => {
         {/* Skip Forward */}
         <button
           onClick={handleSkip}
-          disabled={!isHost || queue.length <= 1 || playbackState.currentIndex >= queue.length - 1}
+          disabled={queue.length <= 1 || playbackState.currentIndex >= queue.length - 1}
           className="w-16 h-16 rounded-full text-text-secondary hover:text-text-primary hover:bg-card-cozy border border-transparent hover:border-border-cozy active:scale-95 transition-all flex items-center justify-center disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
           title="Skip Song"
         >
