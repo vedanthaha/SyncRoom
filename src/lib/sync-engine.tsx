@@ -89,10 +89,24 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
       }
       setUserId(storedId);
 
-      const storedName = localStorage.getItem("syncbeat_user_name") || "";
+      const storedName =
+        localStorage.getItem(`syncbeat_room_${roomId}_name`) ||
+        localStorage.getItem("syncbeat_user_name") ||
+        "";
       setUserNameState(storedName);
-      const hasJoinedSession = sessionStorage.getItem(`syncbeat_joined_${roomId}`) === "true";
-      if (storedName && hasJoinedSession) {
+
+      const isRoomJoined =
+        localStorage.getItem(`syncbeat_room_${roomId}_joined`) === "true" ||
+        sessionStorage.getItem(`syncbeat_room_${roomId}_joined`) === "true";
+
+      const storedJoinedAt =
+        localStorage.getItem(`syncbeat_room_${roomId}_joined_at`);
+      
+      if (storedJoinedAt) {
+        setJoinedAt(parseInt(storedJoinedAt, 10));
+      }
+
+      if (storedName && isRoomJoined) {
         setHasJoined(true);
       }
     }
@@ -122,6 +136,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
   const setUserName = (name: string) => {
     setUserNameState(name);
     if (typeof window !== "undefined") {
+      localStorage.setItem("syncbeat_user_name", name);
       localStorage.setItem(`syncbeat_room_${roomId}_name`, name);
     }
   };
@@ -347,6 +362,43 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
     };
   }, [hasJoined, roomId, supabaseClient, userId, userName, joinedAt]);
 
+  // Handle tab visibility return & reconnects
+  useEffect(() => {
+    if (typeof window === "undefined" || !hasJoined) return;
+
+    const handleVisibilityOrFocus = async () => {
+      if (document.visibilityState === "visible") {
+        console.log("👁️ Tab returned to foreground, re-syncing presence & queue");
+        fetchQueue();
+        if (channelRef.current) {
+          try {
+            await channelRef.current.track({
+              clientId: userId,
+              nickname: userName,
+              joinedAt: joinedAt || Date.now(),
+              isHost: isHostRef.current,
+            });
+            channelRef.current.send({
+              type: "broadcast",
+              event: "request_sync",
+              payload: { userId },
+            });
+          } catch (e) {
+            console.warn("Visibility re-track failed:", e);
+          }
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+    };
+  }, [hasJoined, userId, userName, joinedAt]);
+
   const joinRoom = (name: string) => {
     const timestamp = Date.now();
     console.log('🚪 Joining room:', { name, timestamp, roomId });
@@ -355,7 +407,9 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
     setHasJoined(true);
 
     if (typeof window !== "undefined") {
+      localStorage.setItem("syncbeat_user_name", name);
       localStorage.setItem(`syncbeat_room_${roomId}_joined`, "true");
+      sessionStorage.setItem(`syncbeat_room_${roomId}_joined`, "true");
       localStorage.setItem(`syncbeat_room_${roomId}_name`, name);
       localStorage.setItem(`syncbeat_room_${roomId}_joined_at`, timestamp.toString());
     }
