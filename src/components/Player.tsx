@@ -152,7 +152,7 @@ export const Player: React.FC = () => {
   }, [playbackState.videoId, playbackState.isPlaying, playbackState.lastUpdated]);
 
   const syncGuestPlayer = (targetPlayer: any) => {
-    if (!targetPlayer) return;
+    if (!targetPlayer || isHost) return;
 
     // Load new video if needed
     const currentVideoUrl = targetPlayer.getVideoUrl ? targetPlayer.getVideoUrl() : "";
@@ -191,11 +191,11 @@ export const Player: React.FC = () => {
       currentTime: currentPlTime.toFixed(2),
       targetTime: targetTime.toFixed(2),
       drift: drift.toFixed(2),
-      willSync: drift > 1.0
+      willSync: drift > 2.0
     });
 
-    // Reduced threshold from 2.2s to 1.0s for tighter sync
-    if (drift > 1.0) {
+    // 2.0s threshold to prevent aggressive re-seeking loops and audio stutters
+    if (drift > 2.0) {
       console.log('🎯 Seeking to:', targetTime.toFixed(2));
       targetPlayer.seekTo(targetTime, true);
     }
@@ -222,24 +222,24 @@ export const Player: React.FC = () => {
     };
   }, [player, duration, isScrubbing]);
 
-  // Periodically broadcast position to keep drift low (whoever is playing broadcasts)
+  // Periodically broadcast position to keep drift low (ONLY Host broadcasts state)
   useEffect(() => {
     if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
 
-    if (player && playbackState.isPlaying) {
+    if (isHost && player && playbackState.isPlaying) {
       syncIntervalRef.current = setInterval(() => {
         const time = player.getCurrentTime() || 0;
         updatePlaybackState({
           currentTime: time,
           lastUpdated: Date.now(),
         });
-      }, 2000); // Sync every 2 seconds (reduced from 5s for tighter sync)
+      }, 3000);
     }
 
     return () => {
       if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
     };
-  }, [player, playbackState.isPlaying]);
+  }, [isHost, player, playbackState.isPlaying]);
 
   // Control commands
   const togglePlay = () => {

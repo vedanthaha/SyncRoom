@@ -89,14 +89,10 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
       }
       setUserId(storedId);
 
-      // Check if user has joined THIS specific room before
-      const storedRoomJoin = localStorage.getItem(`syncbeat_room_${roomId}_joined`);
-      const storedName = localStorage.getItem(`syncbeat_room_${roomId}_name`) || "";
-      const storedJoinedAt = localStorage.getItem(`syncbeat_room_${roomId}_joined_at`);
-
-      if (storedRoomJoin === "true" && storedName && storedJoinedAt) {
-        setUserNameState(storedName);
-        setJoinedAt(parseInt(storedJoinedAt, 10));
+      const storedName = localStorage.getItem("syncbeat_user_name") || "";
+      setUserNameState(storedName);
+      const hasJoinedSession = sessionStorage.getItem(`syncbeat_joined_${roomId}`) === "true";
+      if (storedName && hasJoinedSession) {
         setHasJoined(true);
       }
     }

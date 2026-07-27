@@ -24,19 +24,24 @@ export const RoomClient: React.FC<RoomClientProps> = ({ roomId }) => {
 };
 
 const RoomInner: React.FC<{ roomId: string }> = ({ roomId }) => {
-  const { hasJoined, joinRoom, isSupabase } = useSync();
+  const { hasJoined, joinRoom, userName } = useSync();
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [isValidating, setIsValidating] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Check if this is a room creation request
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       setIsCreating(params.get("create") === "true");
     }
   }, []);
+
+  useEffect(() => {
+    if (userName && !name) {
+      setName(userName);
+    }
+  }, [userName]);
 
   // Validate room exists on mount (skip if creating)
   useEffect(() => {
