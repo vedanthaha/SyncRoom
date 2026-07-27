@@ -12,7 +12,7 @@ declare global {
 }
 
 export const Player: React.FC = () => {
-  const { playbackState, updatePlaybackState, isHost, queue, removeFromQueue } = useSync();
+  const { playbackState, updatePlaybackState, isHost, userId, queue, removeFromQueue } = useSync();
   const [player, setPlayer] = useState<any>(null);
   const [isApiReady, setIsApiReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -152,7 +152,12 @@ export const Player: React.FC = () => {
   }, [playbackState.videoId, playbackState.isPlaying, playbackState.lastUpdated]);
 
   const syncGuestPlayer = (targetPlayer: any) => {
-    if (!targetPlayer || isHost) return;
+    if (!targetPlayer) return;
+
+    // Do not sync against our own broadcasts
+    if (playbackState.triggeredBy && playbackState.triggeredBy === userId) {
+      return;
+    }
 
     // Load new video if needed
     const currentVideoUrl = targetPlayer.getVideoUrl ? targetPlayer.getVideoUrl() : "";
@@ -195,7 +200,7 @@ export const Player: React.FC = () => {
     });
 
     // 2.0s threshold to prevent aggressive re-seeking loops and audio stutters
-    if (drift > 2.0) {
+    if (drift > 2.0 || !playbackState.isPlaying) {
       console.log('🎯 Seeking to:', targetTime.toFixed(2));
       targetPlayer.seekTo(targetTime, true);
     }
