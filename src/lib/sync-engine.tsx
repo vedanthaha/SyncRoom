@@ -303,6 +303,17 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
           }
         });
 
+        // Always ensure current user is included in activeMembers list
+        if (userId && !seenIds.has(userId)) {
+          seenIds.add(userId);
+          activeMembers.push({
+            id: userId,
+            name: userName || "Guest",
+            isHost: false,
+            joinedAt: joinedAt || Date.now(),
+          });
+        }
+
         console.log('👥 Active members before sorting:', activeMembers);
 
         // Determine host by oldest member
@@ -400,19 +411,22 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
   }, [hasJoined, userId, userName, joinedAt]);
 
   const joinRoom = (name: string) => {
-    const timestamp = Date.now();
-    console.log('🚪 Joining room:', { name, timestamp, roomId });
-    setUserName(name);
-    setJoinedAt(timestamp);
-    setHasJoined(true);
-
+    let timestamp = Date.now();
     if (typeof window !== "undefined") {
+      const existingJoinedAt = localStorage.getItem(`syncbeat_room_${roomId}_joined_at`);
+      if (existingJoinedAt) {
+        timestamp = parseInt(existingJoinedAt, 10);
+      } else {
+        localStorage.setItem(`syncbeat_room_${roomId}_joined_at`, timestamp.toString());
+      }
       localStorage.setItem("syncbeat_user_name", name);
       localStorage.setItem(`syncbeat_room_${roomId}_joined`, "true");
       sessionStorage.setItem(`syncbeat_room_${roomId}_joined`, "true");
       localStorage.setItem(`syncbeat_room_${roomId}_name`, name);
-      localStorage.setItem(`syncbeat_room_${roomId}_joined_at`, timestamp.toString());
     }
+    setUserName(name);
+    setJoinedAt(timestamp);
+    setHasJoined(true);
     console.log('✅ Room join complete');
   };
 

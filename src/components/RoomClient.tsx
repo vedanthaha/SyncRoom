@@ -41,7 +41,14 @@ const RoomInner: React.FC<{ roomId: string }> = ({ roomId }) => {
     if (userName && !name) {
       setName(userName);
     }
-  }, [userName]);
+  }, [userName, name]);
+
+  // Auto-join if user already has a saved nickname
+  useEffect(() => {
+    if (userName && !hasJoined && !isValidating && !error) {
+      joinRoom(userName);
+    }
+  }, [userName, hasJoined, isValidating, error, joinRoom]);
 
   // Validate room exists on mount (skip if creating)
   useEffect(() => {
