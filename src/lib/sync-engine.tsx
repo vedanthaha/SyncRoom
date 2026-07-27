@@ -303,28 +303,47 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
           }
         });
 
-        // Always ensure current user is included in activeMembers list
-        if (userId && !seenIds.has(userId)) {
-          seenIds.add(userId);
-          activeMembers.push({
-            id: userId,
-            name: userName || "Guest",
-            isHost: false,
-            joinedAt: joinedAt || Date.now(),
-          });
-        }
+        console.log('👥 Active members from presence:', activeMembers);
 
-        console.log('👥 Active members before sorting:', activeMembers);
+        setMembers((prevMembers) => {
+          const memberMap = new Map<string, Member>();
 
-        // Determine host by oldest member
-        const sorted = activeMembers.sort((a, b) => a.joinedAt - b.joinedAt);
-        if (sorted.length > 0) {
-          sorted.forEach((m, idx) => {
-            m.isHost = idx === 0;
+          // 1. Retain existing members so backgrounded/app-switched users are not kicked out
+          prevMembers.forEach((m) => {
+            memberMap.set(m.id, m);
           });
-        }
-        console.log('👥 Final members list:', sorted);
-        setMembers(sorted);
+
+          // 2. Add or update members from latest presence sync
+          activeMembers.forEach((m) => {
+            const existing = memberMap.get(m.id);
+            memberMap.set(m.id, {
+              ...m,
+              joinedAt: existing ? existing.joinedAt : m.joinedAt,
+            });
+          });
+
+          // 3. Always ensure current user is present
+          if (userId && !memberMap.has(userId)) {
+            memberMap.set(userId, {
+              id: userId,
+              name: userName || "Guest",
+              isHost: false,
+              joinedAt: joinedAt || Date.now(),
+            });
+          }
+
+          const combined = Array.from(memberMap.values());
+
+          // Sort by joinedAt to accurately determine host
+          const sorted = combined.sort((a, b) => a.joinedAt - b.joinedAt);
+          if (sorted.length > 0) {
+            sorted.forEach((m, idx) => {
+              m.isHost = idx === 0;
+            });
+          }
+          console.log('👥 Final sticky members list:', sorted);
+          return sorted;
+        });
       })
       .on("presence", { event: "join" }, ({ key, newPresences }: { key: string; newPresences: any[] }) => {
         console.log('➕ User joined:', key, newPresences);
