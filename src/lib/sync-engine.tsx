@@ -517,35 +517,40 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
   };
 
   const removeFromQueue = async (itemId: string) => {
+    const itemIndex = queueRef.current.findIndex((i) => i.id === itemId);
+    if (itemIndex === -1) return;
+
     const newQueue = queueRef.current.filter((item) => item.id !== itemId);
     setQueue(newQueue);
 
-    // If the removed item was currently playing, handle loading the next one
-    const currentPlayingItem = queueRef.current[playbackStateRef.current.currentIndex];
-    if (currentPlayingItem && currentPlayingItem.id === itemId) {
-      const nextIndex = playbackStateRef.current.currentIndex; // Index remains same but points to next item now
+    const currentIdx = playbackStateRef.current.currentIndex;
+
+    if (itemIndex === currentIdx) {
+      // Removing the currently playing item
       let nextPlayback: PlaybackState;
-      if (nextIndex < newQueue.length) {
-        nextPlayback = {
-          videoId: newQueue[nextIndex].videoId,
-          currentIndex: nextIndex,
-          isPlaying: true,
-          currentTime: 0,
-          lastUpdated: Date.now(),
-        };
-      } else {
+      if (newQueue.length === 0) {
         nextPlayback = {
           videoId: null,
           currentIndex: 0,
           isPlaying: false,
           currentTime: 0,
           lastUpdated: Date.now(),
+          triggeredBy: userId,
+        };
+      } else {
+        const nextIdx = itemIndex < newQueue.length ? itemIndex : 0;
+        nextPlayback = {
+          videoId: newQueue[nextIdx].videoId,
+          currentIndex: nextIdx,
+          isPlaying: true,
+          currentTime: 0,
+          lastUpdated: Date.now(),
+          triggeredBy: userId,
         };
       }
 
       setPlaybackState(nextPlayback);
 
-      // Broadcast playback change
       if (channelRef.current) {
         channelRef.current.send({
           type: "broadcast",
@@ -570,6 +575,24 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
             },
           }),
         }).catch(console.error);
+      }
+    } else if (itemIndex < currentIdx) {
+      // An item before current playing track was removed, shift current index down by 1
+      const newIdx = Math.max(0, currentIdx - 1);
+      const nextPlayback: PlaybackState = {
+        ...playbackStateRef.current,
+        currentIndex: newIdx,
+        lastUpdated: Date.now(),
+        triggeredBy: userId,
+      };
+      setPlaybackState(nextPlayback);
+
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "playback",
+          payload: nextPlayback,
+        });
       }
     }
 
@@ -602,21 +625,26 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
 
   const clearQueue = async () => {
     setQueue([]);
-    const nextPlayback = {
+    const nextPlayback: PlaybackState = {
       videoId: null,
       currentIndex: 0,
       isPlaying: false,
       currentTime: 0,
       lastUpdated: Date.now(),
+      triggeredBy: userId,
     };
     setPlaybackState(nextPlayback);
 
-    // Broadcast playback change
     if (channelRef.current) {
       channelRef.current.send({
         type: "broadcast",
         event: "playback",
         payload: nextPlayback,
+      });
+      channelRef.current.send({
+        type: "broadcast",
+        event: "queue_change",
+        payload: {},
       });
     }
 
@@ -630,30 +658,7 @@ export const SyncProvider: React.FC<{ roomId: string; children: React.ReactNode 
             dbRoomId,
           }),
         });
-        
-        await fetch("/api/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "playback_change",
-            dbRoomId,
-            payload: {
-              videoId: nextPlayback.videoId,
-              currentIndex: nextPlayback.currentIndex,
-              isPlaying: nextPlayback.isPlaying,
-              currentTime: 0,
-              lastUpdated: Date.now(),
-            },
-          }),
-        });
-
-        if (channelRef.current) {
-          channelRef.current.send({
-            type: "broadcast",
-            event: "queue_change",
-            payload: {},
-          });
-        }
+        fetchQueue();
       } catch (err) {
         console.error("Failed to clear queue:", err);
       }

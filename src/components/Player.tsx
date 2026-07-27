@@ -11,6 +11,14 @@ declare global {
   }
 }
 
+const safeYtCall = <T,>(fn: () => T, fallback: T): T => {
+  try {
+    return fn();
+  } catch {
+    return fallback;
+  }
+};
+
 export const Player: React.FC = () => {
   const { playbackState, updatePlaybackState, isHost, userId, queue, removeFromQueue } = useSync();
   const [player, setPlayer] = useState<any>(null);
@@ -27,7 +35,7 @@ export const Player: React.FC = () => {
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load YouTube IFrame API
+  // Initialize YouTube IFrame API script
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -43,10 +51,6 @@ export const Player: React.FC = () => {
 
     window.onYouTubeIframeAPIReady = () => {
       setIsApiReady(true);
-    };
-
-    return () => {
-      // Don't clean up global function to avoid issues if re-mounted
     };
   }, []);
 
@@ -72,8 +76,8 @@ export const Player: React.FC = () => {
         onReady: (event: any) => {
           setPlayer(event.target);
           playerRef.current = event.target;
-          event.target.setVolume(volume);
-          if (isMuted) event.target.mute();
+          safeYtCall(() => event.target.setVolume(volume), null);
+          if (isMuted) safeYtCall(() => event.target.mute(), null);
           
           // Initial seek and state sync
           syncGuestPlayer(event.target);
@@ -99,17 +103,13 @@ export const Player: React.FC = () => {
   // Clean up player on dismount or videoId changes
   useEffect(() => {
     if (!playbackState.videoId && player) {
-      try {
-        player.destroy();
-      } catch (e) {
-        console.error(e);
-      }
+      safeYtCall(() => player.destroy(), null);
       setPlayer(null);
       playerRef.current = null;
       setDuration(0);
       setCurrentTime(0);
     }
-  }, [playbackState.videoId]);
+  }, [playbackState.videoId, player]);
 
   // Handle video ending by moving to the next item
   const handleVideoEnded = () => {
@@ -133,23 +133,25 @@ export const Player: React.FC = () => {
 
   // Synchronize playback state changes from other users (and load new videos)
   useEffect(() => {
-    if (!player || !player.getPlayerState) return;
+    if (!player) return;
 
     // Both host and guest must load the new video when videoId changes
-    const currentVideoUrl = player.getVideoUrl ? player.getVideoUrl() : "";
+    const currentVideoUrl = safeYtCall(() => player.getVideoUrl(), "");
     const isDifferentVideo = playbackState.videoId && !currentVideoUrl.includes(playbackState.videoId);
 
     if (isDifferentVideo) {
-      player.loadVideoById({
-        videoId: playbackState.videoId,
-        startSeconds: playbackState.currentTime || 0
-      });
+      safeYtCall(() => {
+        player.loadVideoById({
+          videoId: playbackState.videoId,
+          startSeconds: playbackState.currentTime || 0
+        });
+      }, null);
       return;
     }
 
     // Sync to other users' changes (skip our own broadcasts)
     syncGuestPlayer(player);
-  }, [playbackState.videoId, playbackState.isPlaying, playbackState.lastUpdated]);
+  }, [playbackState.videoId, playbackState.isPlaying, playbackState.lastUpdated, player]);
 
   const syncGuestPlayer = (targetPlayer: any) => {
     if (!targetPlayer) return;
@@ -160,26 +162,28 @@ export const Player: React.FC = () => {
     }
 
     // Load new video if needed
-    const currentVideoUrl = targetPlayer.getVideoUrl ? targetPlayer.getVideoUrl() : "";
+    const currentVideoUrl = safeYtCall(() => targetPlayer.getVideoUrl(), "");
     const isDifferentVideo = playbackState.videoId && !currentVideoUrl.includes(playbackState.videoId);
 
     if (isDifferentVideo) {
       console.log('🎬 Loading new video:', playbackState.videoId);
-      targetPlayer.loadVideoById({
-        videoId: playbackState.videoId,
-        startSeconds: playbackState.currentTime
-      });
+      safeYtCall(() => {
+        targetPlayer.loadVideoById({
+          videoId: playbackState.videoId,
+          startSeconds: playbackState.currentTime
+        });
+      }, null);
       return;
     }
 
     // Play/Pause alignment
-    const playerState = targetPlayer.getPlayerState();
+    const playerState = safeYtCall(() => targetPlayer.getPlayerState(), -1);
     if (playbackState.isPlaying && playerState !== 1) {
       console.log('▶️ Syncing: Playing video');
-      targetPlayer.playVideo();
+      safeYtCall(() => targetPlayer.playVideo(), null);
     } else if (!playbackState.isPlaying && playerState === 1) {
       console.log('⏸️ Syncing: Pausing video');
-      targetPlayer.pauseVideo();
+      safeYtCall(() => targetPlayer.pauseVideo(), null);
     }
 
     // Sync time offset (calculate network lag compensation)
@@ -189,7 +193,7 @@ export const Player: React.FC = () => {
       targetTime += timeDiff;
     }
 
-    const currentPlTime = targetPlayer.getCurrentTime() || 0;
+    const currentPlTime = safeYtCall(() => targetPlayer.getCurrentTime(), 0);
     const drift = Math.abs(currentPlTime - targetTime);
 
     console.log('⏱️ Sync check:', {
@@ -202,7 +206,7 @@ export const Player: React.FC = () => {
     // 2.0s threshold to prevent aggressive re-seeking loops and audio stutters
     if (drift > 2.0 || !playbackState.isPlaying) {
       console.log('🎯 Seeking to:', targetTime.toFixed(2));
-      targetPlayer.seekTo(targetTime, true);
+      safeYtCall(() => targetPlayer.seekTo(targetTime, true), null);
     }
   };
 
@@ -211,12 +215,12 @@ export const Player: React.FC = () => {
     if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
 
     progressIntervalRef.current = setInterval(() => {
-      if (!player || !player.getCurrentTime || isScrubbing) return;
+      if (!player || isScrubbing) return;
       
-      const time = player.getCurrentTime() || 0;
+      const time = safeYtCall(() => player.getCurrentTime(), 0);
       setCurrentTime(time);
 
-      const dur = player.getDuration() || 0;
+      const dur = safeYtCall(() => player.getDuration(), 0);
       if (dur !== duration) {
         setDuration(dur);
       }
@@ -233,7 +237,7 @@ export const Player: React.FC = () => {
 
     if (isHost && player && playbackState.isPlaying) {
       syncIntervalRef.current = setInterval(() => {
-        const time = player.getCurrentTime() || 0;
+        const time = safeYtCall(() => player.getCurrentTime(), 0);
         updatePlaybackState({
           currentTime: time,
           lastUpdated: Date.now(),
